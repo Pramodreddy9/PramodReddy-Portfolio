@@ -61,8 +61,9 @@
     html{scroll-behavior:auto}
     *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
   }
+  html{background:var(--bg)}
   body{
-    background:var(--bg);
+    background:transparent;
     color:var(--text);
     font-family:var(--sans);
     font-size:16px;
@@ -86,6 +87,23 @@
     pointer-events:none;
     z-index:0;
     mask-image:radial-gradient(ellipse 80% 60% at 50% 0%, black 0%, transparent 75%);
+  }
+
+  /* ---------- SPACE SCENE (WebGL cinematic scroll journey) ---------- */
+  .cosmic-bg{
+    position:fixed;inset:0;z-index:-2;overflow:hidden;pointer-events:none;
+    background:var(--bg);
+  }
+  .cosmic-bg canvas{
+    position:absolute;inset:0;width:100%;height:100%;display:block;
+  }
+  #cosmosCanvas{display:none}
+  /* readability scrim: sits above the 3D scene, below the technical grid / content */
+  .cosmic-scrim{
+    position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background:
+      linear-gradient(180deg, rgba(10,10,12,.42) 0%, rgba(10,10,12,.14) 16%, rgba(10,10,12,.20) 55%, rgba(10,10,12,.58) 100%),
+      radial-gradient(ellipse 70% 55% at 50% 45%, transparent 40%, rgba(10,10,12,.35) 100%);
   }
 
   .wrap{max-width:var(--maxw);margin:0 auto;padding:0 32px}
@@ -341,7 +359,9 @@
     background:linear-gradient(150deg,var(--gold-dim),transparent);
     border:1px solid var(--gold-line);display:flex;align-items:center;justify-content:center;
     font-family:var(--serif);color:var(--gold-bright);font-size:1.3rem;
+    overflow:hidden;
   }
+  .cert-icon img{width:100%;height:100%;object-fit:contain;object-position:center;padding:4px}
   .cert-info{flex:1}
   .cert-org{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}
   .cert-name{font-family:var(--serif);font-size:1.05rem;color:var(--text);margin-bottom:8px}
@@ -424,6 +444,12 @@
 </style>
 </head>
 <body>
+
+<div class="cosmic-bg" aria-hidden="true">
+  <canvas id="space-canvas"></canvas>
+  <canvas id="cosmosCanvas"></canvas>
+</div>
+<div class="cosmic-scrim" aria-hidden="true"></div>
 
 <header>
   <nav>
@@ -566,7 +592,7 @@
     <div class="wrap about-grid">
       <div class="reveal">
         <div class="about-portrait">
-          <img src="Pramod_Venuthurla Hyderabad.jpeg" alt="Pramod Reddy V, Data Engineer at Koantek" loading="lazy" />
+          <img src="assets/portrait.jpg" alt="Pramod Reddy V, Data Engineer at Koantek" loading="lazy" />
         </div>
       </div>
       <div class="reveal">
@@ -781,7 +807,7 @@
           </span>
         </a>
         <a class="cert-card" href="https://credentials.databricks.com/a7a8dbc8-7db8-4da1-8759-b08fa7e33c1b#acc.efs3672v" target="_blank" rel="noopener">
-          <span class="cert-icon">D</span>
+          <span class="cert-icon"><img src="assets/cert-genai-associate.png" alt="Databricks Generative AI Engineer Associate badge" loading="lazy" /></span>
           <span class="cert-info">
             <span class="cert-org">Databricks</span>
             <span class="cert-name">Generative AI Engineer Associate</span>
@@ -911,6 +937,435 @@
     revealEls.forEach(function(el){ ro.observe(el); });
   } else {
     document.querySelectorAll('.reveal').forEach(function(el){ el.classList.add('in'); });
+  }
+})();
+</script>
+
+<!-- Three.js — cinematic scroll-driven space scene. Loaded synchronously so it exists before init runs. -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var isSmallScreen = window.innerWidth < 820;
+  var isLowPower = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) || isSmallScreen;
+
+  var spaceCanvas = document.getElementById('space-canvas');
+  var fallbackCanvas = document.getElementById('cosmosCanvas');
+
+  /* ============================================================
+     FALLBACK — lightweight 2D starfield.
+     Used when WebGL is unavailable or Three.js fails to load.
+     ============================================================ */
+  function initFallbackStars(){
+    if(!fallbackCanvas || !fallbackCanvas.getContext) return;
+    spaceCanvas.style.display = 'none';
+    fallbackCanvas.style.display = 'block';
+    var ctx = fallbackCanvas.getContext('2d');
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var stars = [];
+    var resizeTimer;
+
+    function buildStars(){
+      var area = fallbackCanvas.width * fallbackCanvas.height;
+      var count = Math.max(60, Math.min(170, Math.floor(area / 42000)));
+      stars = [];
+      for(var i=0;i<count;i++){
+        stars.push({
+          x: Math.random() * fallbackCanvas.width,
+          y: Math.random() * fallbackCanvas.height,
+          r: (Math.random() * 1.1 + 0.35) * dpr,
+          base: Math.random() * 0.45 + 0.15,
+          speed: Math.random() * 0.5 + 0.15,
+          phase: Math.random() * Math.PI * 2,
+          gold: Math.random() > 0.84
+        });
+      }
+    }
+
+    function sizeCanvas(){
+      fallbackCanvas.width = Math.floor(window.innerWidth * dpr);
+      fallbackCanvas.height = Math.floor(window.innerHeight * dpr);
+      buildStars();
+    }
+
+    function render(t){
+      ctx.clearRect(0, 0, fallbackCanvas.width, fallbackCanvas.height);
+      for(var i=0;i<stars.length;i++){
+        var s = stars[i];
+        var a = reduceMotion ? s.base : s.base + Math.sin((t || 0) * 0.00035 * s.speed + s.phase) * 0.22;
+        if(a < 0) a = 0; if(a > 0.85) a = 0.85;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = s.gold ? 'rgba(227,193,121,' + a + ')' : 'rgba(234,231,224,' + a + ')';
+        ctx.fill();
+      }
+      if(!reduceMotion) requestAnimationFrame(render);
+    }
+
+    sizeCanvas();
+    render(0);
+    window.addEventListener('resize', function(){
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(sizeCanvas, 250);
+    });
+  }
+
+  /* ============================================================
+     PROCEDURAL TEXTURE HELPERS (canvas-generated, no external assets)
+     ============================================================ */
+  function makeGlowTexture(hexInner, hexOuter, size){
+    size = size || 256;
+    var c = document.createElement('canvas');
+    c.width = c.height = size;
+    var ctx = c.getContext('2d');
+    var g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    g.addColorStop(0, hexInner);
+    g.addColorStop(0.35, hexOuter);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+
+  function makeRingTexture(){
+    var size = 256;
+    var c = document.createElement('canvas');
+    c.width = size; c.height = 32;
+    var ctx = c.getContext('2d');
+    for(var x=0; x<size; x++){
+      var band = Math.sin(x * 0.35) * 0.5 + 0.5;
+      var a = 0.15 + band * 0.5 * Math.random() * 0.6 + band * 0.3;
+      ctx.fillStyle = 'rgba(214,196,158,' + Math.min(a, 0.85).toFixed(3) + ')';
+      ctx.fillRect(x, 0, 1, 32);
+    }
+    return new THREE.CanvasTexture(c);
+  }
+
+  /* value-noise helper (cheap, deterministic per-call) for stylized planet surfaces */
+  function hashNoise(x, y, z){
+    var s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+    return s - Math.floor(s);
+  }
+  function fbm(x, y, z){
+    var v = 0, amp = 0.55, freq = 1.0;
+    for(var i=0;i<4;i++){
+      v += hashNoise(x*freq, y*freq, z*freq) * amp;
+      freq *= 2.05; amp *= 0.55;
+    }
+    return v;
+  }
+
+  function paintPlanetVertexColors(geo, oceanColor, landColor, scale, contrast){
+    var pos = geo.attributes.position;
+    var colors = new Float32Array(pos.count * 3);
+    var oc = new THREE.Color(oceanColor), lc = new THREE.Color(landColor), tmp = new THREE.Color();
+    for(var i=0;i<pos.count;i++){
+      var x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      var n = fbm(x*scale, y*scale, z*scale);
+      n = Math.pow(n, contrast || 1);
+      tmp.copy(oc).lerp(lc, n);
+      colors[i*3] = tmp.r; colors[i*3+1] = tmp.g; colors[i*3+2] = tmp.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
+
+  /* ============================================================
+     MAIN SPACE SCENE
+     ============================================================ */
+  function initSpaceScene(){
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: spaceCanvas, antialias: !isLowPower, powerPreference: 'high-performance' });
+    } catch(e){
+      initFallbackStars();
+      return;
+    }
+    if(!renderer){ initFallbackStars(); return; }
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isLowPower ? 1.4 : 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x0a0a0c, 1);
+
+    var scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0a0c, 0.026);
+
+    var camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(0, 0, 18);
+
+    // Lights: soft ambient fill + a camera-mounted "headlight" so every object reads
+    // clearly as the camera glides past it, plus a warm sun-position accent light.
+    scene.add(new THREE.AmbientLight(0x223344, 0.55));
+    var camLight = new THREE.PointLight(0xdfe6f2, 1.35, 90);
+    camera.add(camLight);
+    scene.add(camera);
+    var sunLight = new THREE.PointLight(0xffd9a0, 2.4, 220);
+    sunLight.position.set(-14, 6, -34);
+    scene.add(sunLight);
+
+    var STAR_COUNT = isLowPower ? 900 : 2600;
+    var ASTEROID_COUNT = isLowPower ? 34 : 130;
+    var STREAM_COUNT = isLowPower ? 46 : 150;
+
+    /* ---------- Starfield ---------- */
+    (function buildStars(){
+      var positions = new Float32Array(STAR_COUNT * 3);
+      var sizes = new Float32Array(STAR_COUNT);
+      for(var i=0;i<STAR_COUNT;i++){
+        var r = 90 + Math.random() * 120;
+        var theta = Math.random() * Math.PI * 2;
+        var phi = Math.acos((Math.random() * 2) - 1);
+        positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+        positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+        positions[i*3+2] = -Math.abs(r * Math.cos(phi)) - 10;
+        sizes[i] = Math.random() * 1.6 + 0.4;
+      }
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      var m = new THREE.PointsMaterial({ color: 0xf2efe8, size: 0.55, sizeAttenuation: true, transparent: true, opacity: 0.85, fog: false });
+      scene.add(new THREE.Points(g, m));
+    })();
+
+    /* ---------- Earth ---------- */
+    var earthGroup = new THREE.Group();
+    earthGroup.position.set(0, 0, 0);
+    var earthGeo = new THREE.SphereGeometry(6, 64, 64);
+    paintPlanetVertexColors(earthGeo, '#0f2e4d', '#2d5c3e', 0.5, 1.4);
+    var earthMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05 });
+    var earth = new THREE.Mesh(earthGeo, earthMat);
+    earthGroup.add(earth);
+    // atmosphere rim glow
+    var atmoMat = new THREE.ShaderMaterial({
+      transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false,
+      uniforms: { glowColor: { value: new THREE.Color(0x5b9fdb) } },
+      vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'varying vec3 vN; uniform vec3 glowColor; void main(){ float i = pow(0.68 - dot(vN, vec3(0.0,0.0,1.0)), 2.5); gl_FragColor = vec4(glowColor, clamp(i,0.0,1.0) * 0.9); }'
+    });
+    earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(6.35, 48, 48), atmoMat));
+    // thin data-orbit ring (pipeline motif)
+    var orbitRing = new THREE.Mesh(
+      new THREE.TorusGeometry(8.6, 0.03, 8, 128),
+      new THREE.MeshBasicMaterial({ color: 0xc9a24d, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending })
+    );
+    orbitRing.rotation.x = Math.PI / 2.35;
+    earthGroup.add(orbitRing);
+    scene.add(earthGroup);
+
+    /* ---------- Moon ---------- */
+    var moonGroup = new THREE.Group();
+    moonGroup.position.set(10, 3, -14);
+    var moonGeo = new THREE.SphereGeometry(1.6, 32, 32);
+    paintPlanetVertexColors(moonGeo, '#5a5a5f', '#9a968c', 1.1, 1.0);
+    var moon = new THREE.Mesh(moonGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0 }));
+    moonGroup.add(moon);
+    scene.add(moonGroup);
+
+    /* ---------- Sun (distant flare) ---------- */
+    var sunGroup = new THREE.Group();
+    sunGroup.position.set(-14, 6, -34);
+    var sun = new THREE.Mesh(
+      new THREE.SphereGeometry(9, 32, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffb35c })
+    );
+    sunGroup.add(sun);
+    var sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,220,170,0.95)', 'rgba(255,150,70,0.35)'),
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    sunGlow.scale.set(46, 46, 1);
+    sunGroup.add(sunGlow);
+    scene.add(sunGroup);
+
+    /* ---------- Asteroid belt ---------- */
+    var asteroidGroup = new THREE.Group();
+    asteroidGroup.position.set(6, -4, -52);
+    var asteroidMesh = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(0.32, 0),
+      new THREE.MeshStandardMaterial({ color: 0x6b6b70, roughness: 1, metalness: 0.1 }),
+      ASTEROID_COUNT
+    );
+    var dummy = new THREE.Object3D();
+    for(var a=0;a<ASTEROID_COUNT;a++){
+      var ar = 6 + Math.random() * 9;
+      var at = Math.random() * Math.PI * 2;
+      dummy.position.set(Math.cos(at) * ar, (Math.random() - 0.5) * 4, Math.sin(at) * ar * 0.6);
+      dummy.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      var sc = 0.5 + Math.random() * 1.4;
+      dummy.scale.set(sc, sc, sc);
+      dummy.updateMatrix();
+      asteroidMesh.setMatrixAt(a, dummy.matrix);
+    }
+    asteroidGroup.add(asteroidMesh);
+    scene.add(asteroidGroup);
+
+    /* ---------- Ringed planet ---------- */
+    var ringedGroup = new THREE.Group();
+    ringedGroup.position.set(-10, 2, -72);
+    ringedGroup.rotation.z = 0.35;
+    var ringedPlanet = new THREE.Mesh(
+      new THREE.SphereGeometry(5, 48, 48),
+      new THREE.MeshStandardMaterial({ color: 0xcf9f5f, roughness: 0.7 })
+    );
+    ringedGroup.add(ringedPlanet);
+    var ring = new THREE.Mesh(
+      new THREE.RingGeometry(7, 11.5, 90),
+      new THREE.MeshBasicMaterial({ map: makeRingTexture(), transparent: true, side: THREE.DoubleSide, opacity: 0.85 })
+    );
+    ring.rotation.x = Math.PI / 2.15;
+    ringedGroup.add(ring);
+    scene.add(ringedGroup);
+
+    /* ---------- Satellite + data-node network (pipeline motif) ---------- */
+    var satGroup = new THREE.Group();
+    satGroup.position.set(8, 3, -92);
+    var satBody = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.6), new THREE.MeshStandardMaterial({ color: 0xd8d6cf, metalness: 0.4, roughness: 0.4 }));
+    satGroup.add(satBody);
+    [-1, 1].forEach(function(side){
+      var panel = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.7), new THREE.MeshStandardMaterial({ color: 0x1c3a5e, metalness: 0.6, roughness: 0.3 }));
+      panel.position.x = side * 1.5;
+      satGroup.add(panel);
+    });
+    var blinkMat = new THREE.MeshBasicMaterial({ color: 0xc9a24d });
+    var blink = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), blinkMat);
+    blink.position.set(0, 0.4, 0.2);
+    satGroup.add(blink);
+    // data nodes + connecting lines
+    var nodePositions = [ [3.4, 1.2, -1.5], [-2.8, -1.6, 1.2], [1.6, -2.4, -2.4], [-1.2, 2.0, 2.0] ];
+    var lineMat = new THREE.LineBasicMaterial({ color: 0xc9a24d, transparent: true, opacity: 0.45 });
+    var nodeMat = new THREE.MeshBasicMaterial({ color: 0xe3c179 });
+    nodePositions.forEach(function(p){
+      var node = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 10), nodeMat);
+      node.position.set(p[0], p[1], p[2]);
+      satGroup.add(node);
+      var pts = [new THREE.Vector3(0,0,0), new THREE.Vector3(p[0], p[1], p[2])];
+      var lg = new THREE.BufferGeometry().setFromPoints(pts);
+      satGroup.add(new THREE.Line(lg, lineMat));
+    });
+    scene.add(satGroup);
+
+    /* ---------- Nebula ---------- */
+    var nebula1 = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeGlowTexture('rgba(140,120,220,0.55)', 'rgba(90,70,180,0.12)'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    nebula1.position.set(-6, -2, -112);
+    nebula1.scale.set(60, 60, 1);
+    scene.add(nebula1);
+    var nebula2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeGlowTexture('rgba(91,159,219,0.5)', 'rgba(60,110,180,0.1)'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    nebula2.position.set(10, 4, -120);
+    nebula2.scale.set(70, 70, 1);
+    scene.add(nebula2);
+
+    /* ---------- Glowing data-stream particles (drift along the journey) ---------- */
+    var streamCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(2, 1, 10), new THREE.Vector3(5, -1, -20), new THREE.Vector3(-3, 2, -50),
+      new THREE.Vector3(4, -2, -80), new THREE.Vector3(-2, 1, -105), new THREE.Vector3(1, 0, -130)
+    ]);
+    var streamGeo = new THREE.BufferGeometry();
+    var streamPos = new Float32Array(STREAM_COUNT * 3);
+    var streamT = new Float32Array(STREAM_COUNT);
+    for(var s=0;s<STREAM_COUNT;s++){ streamT[s] = Math.random(); }
+    streamGeo.setAttribute('position', new THREE.BufferAttribute(streamPos, 3));
+    var streamMat = new THREE.PointsMaterial({ color: 0xc9a24d, size: 0.16, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, fog: false });
+    var streamPoints = new THREE.Points(streamGeo, streamMat);
+    scene.add(streamPoints);
+
+    /* ============================================================
+       CAMERA JOURNEY — one continuous spline through every section
+       ============================================================ */
+    var cameraCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.5, 18),     // home — near Earth
+      new THREE.Vector3(6, 2, 4),        // capabilities — pulling back, Moon entering frame
+      new THREE.Vector3(-4, 3, -20),     // about — transiting toward the sun's glow
+      new THREE.Vector3(4, -1, -40),     // experience — asteroid field
+      new THREE.Vector3(-6, 1, -58),     // skills — ringed planet reveal
+      new THREE.Vector3(4, 2, -78),      // projects — satellite / data-node cluster
+      new THREE.Vector3(0, 3, -98),      // certifications — constellation field
+      new THREE.Vector3(-2, 0, -110),    // writing — nebula passage
+      new THREE.Vector3(0, 4, -130)      // contact — pulled back into deep space
+    ]);
+
+    var smoothedT = 0;
+    var clock = new THREE.Clock();
+
+    function getScrollProgress(){
+      var doc = document.documentElement;
+      var max = doc.scrollHeight - window.innerHeight;
+      if(max <= 0) return 0;
+      var p = window.scrollY / max;
+      return Math.min(1, Math.max(0, p));
+    }
+
+    function updateCamera(t){
+      var pos = cameraCurve.getPointAt(t);
+      var lookAhead = cameraCurve.getPointAt(Math.min(1, t + 0.02));
+      camera.position.copy(pos);
+      camera.lookAt(lookAhead);
+    }
+
+    function animateObjects(elapsed){
+      earthGroup.rotation.y = elapsed * 0.045;
+      orbitRing.rotation.z = elapsed * 0.06;
+      moonGroup.rotation.y = elapsed * 0.03;
+      asteroidGroup.rotation.y = elapsed * 0.015;
+      satGroup.rotation.y = Math.sin(elapsed * 0.15) * 0.15;
+      blinkMat.color.setHSL(0.11, 0.55, 0.4 + Math.sin(elapsed * 3) * 0.3);
+      ringedGroup.rotation.y = elapsed * 0.02;
+
+      var pos = streamGeo.attributes.position.array;
+      for(var i=0;i<STREAM_COUNT;i++){
+        streamT[i] += 0.00035 + (i % 5) * 0.00003;
+        if(streamT[i] > 1) streamT[i] -= 1;
+        var p = streamCurve.getPointAt(streamT[i]);
+        pos[i*3] = p.x + Math.sin(elapsed + i) * 0.4;
+        pos[i*3+1] = p.y + Math.cos(elapsed * 0.8 + i) * 0.4;
+        pos[i*3+2] = p.z;
+      }
+      streamGeo.attributes.position.needsUpdate = true;
+    }
+
+    function frame(){
+      var elapsed = clock.getElapsedTime();
+      var target = getScrollProgress();
+      smoothedT += (target - smoothedT) * 0.06;
+      updateCamera(smoothedT);
+      animateObjects(elapsed);
+      renderer.render(scene, camera);
+      if(!reduceMotion) requestAnimationFrame(frame);
+    }
+
+    function onResize(){
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    var resizeTimer;
+    window.addEventListener('resize', function(){
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(onResize, 200);
+    });
+
+    if(reduceMotion){
+      // Static single frame: no camera travel, no animation loop.
+      updateCamera(0);
+      renderer.render(scene, camera);
+    } else {
+      frame();
+    }
+  }
+
+  /* ============================================================
+     BOOT — WebGL if available, otherwise the 2D fallback
+     ============================================================ */
+  function webglAvailable(){
+    try {
+      var c = document.createElement('canvas');
+      return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
+    } catch(e){ return false; }
+  }
+
+  if(window.THREE && spaceCanvas && webglAvailable()){
+    try { initSpaceScene(); } catch(e){ initFallbackStars(); }
+  } else {
+    initFallbackStars();
   }
 })();
 </script>
